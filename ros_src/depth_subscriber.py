@@ -2,11 +2,13 @@
 from __future__ import print_function
 
 import roslib
-roslib.load_manifest('depth_sub')
+#roslib.load_manifest('depth_sub')
 import sys
 import rospy
 import cv2
 from std_msgs.msg import String
+from std_msgs.msg import UInt16
+from std_msgs.msg import UInt8
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 
@@ -18,11 +20,16 @@ class image_converter:
   def __init__(self):
   
 
+    
     self.bridge = CvBridge()
     self.depth_sub = rospy.Subscriber("/camera/depth/image_rect_raw",Image,self.depth_cb)
     self.rgb_sub = rospy.Subscriber("/camera/color/image_raw",Image,self.rgb_cb)
     # subscribe yolo output
     self.yolo_sub = rospy.Subscriber("/yolo_output",yolo_coordinateArray,self.yolo_cb)
+
+    self.depth_pub = rospy.Publisher("/depth_or", UInt16, queue_size = 10)
+    self.depth_image_pub = rospy.Publisher("/depth_image_pub", Image, queue_size = 10)
+
   def depth_cb(self,data):
     try:
       #(480,640,3)
@@ -37,7 +44,7 @@ class image_converter:
   
     
     if len(data.results) > 0:
-      
+      print(data.results)
 
 
       # make sure the number of results
@@ -59,13 +66,20 @@ class image_converter:
 
         ))
 
+        
+        self.draw()
+        self.depth_pub.publish(self.depth_value)
+
+        self.depth_image_pub.publish(CvBridge().cv2_to_imgmsg(self.cv_rgb_image, encoding="bgr8"))
+        
 
 
-    else:
-      self.yolo_output_list = []
-      rospy.logwarn("No results")
 
-    self.draw()
+    # else:
+    #   self.yolo_output_list = []
+    #   rospy.logwarn("No results")
+
+    
   
 
 
@@ -109,20 +123,15 @@ class image_converter:
       
       self.cv_rgb_image = cv2.circle(
         self.cv_rgb_image, (self.yolo_output_list[idx][0],self.yolo_output_list[idx][1]), 3, self.color, -1)
-      
-      
-      cv2.putText(self.cv_rgb_image,str(self.cv_depth_image[self.yolo_output_list[idx][1]][self.yolo_output_list[idx][0]]), (self.yolo_output_list[idx][0],self.yolo_output_list[idx][1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.color, 2, cv2.LINE_AA)
 
+      self.depth_value = self.cv_depth_image[self.yolo_output_list[idx][1]][self.yolo_output_list[idx][0]]
+      self.cecnter_of_box = (self.yolo_output_list[idx][0],self.yolo_output_list[idx][1])
 
-    cv2.imshow("RGB window", self.cv_rgb_image)
-
-
+      cv2.putText(self.cv_rgb_image, str(self.depth_value), self.cecnter_of_box, cv2.FONT_HERSHEY_SIMPLEX, 1, self.color, 2, cv2.LINE_AA)
 
     
-    
-
-
-    cv2.waitKey(3)
+    # cv2.imshow("RGB window", self.cv_rgb_image)
+    # cv2.waitKey(3)
 
 
 
