@@ -21,11 +21,20 @@ from ros_tkdnn.msg import depth_info
 from tf.transformations import *
 import numpy as np
 
+import matplotlib.pyplot as plt
+
 class image_converter:
 
   def __init__(self):
     
    # self.cv_depth_image = None
+    self.img = np.zeros(shape=(1000,1000,3))
+  
+ 
+
+    
+    
+
 
     self.bridge = CvBridge()
     self.depth_sub = rospy.Subscriber("/camera/depth/image_rect_raw",Image,self.depth_cb)
@@ -42,6 +51,7 @@ class image_converter:
 
     self.depth_flag = False
     self.slam_flag = False
+
   def slam_cb(self,data):
     self.slam_flag = True
     self.drone_x = data.pose.pose.position.x
@@ -81,7 +91,7 @@ class image_converter:
 
         for point in self.gaussian_sampling:
 
-          self.depth_value_list.append(self.get_depth( int(point[0]), int(point[1])))  
+          self.depth_value_list.append(self.get_depth(int(point[0]), int(point[1])))  
 
         # Choose representative point (minimum depth)
       
@@ -105,7 +115,7 @@ class image_converter:
 
         obstacle_x, obstacle_y = self.get_obstacle_pos(self.depth_value_gaussian, self.drone_x, self.drone_y, self.roll , self.pitch , self.yaw)
 
-        self.depth_info.depth = self.depth_value_gaussian
+        self.depth_info.depth = self.depth_value_gaussian/10.0 # centi meter
 
         self.depth_info.label = data.results[idx].label
 
@@ -115,11 +125,36 @@ class image_converter:
         print(self.depth_info)
         self.depth_estimator_pub.publish(self.depth_info)
 
+
+        self.draw_top_view(obstacle_x,obstacle_y,255,255,255)
+        self.draw_top_view(self.drone_x*100,self.drone_y*100,0,255,255)
+
+
+
+  def draw_top_view(self, x, y,r,g,b):
+
+    
+    x += 250
+    y += 250
+
+    img = cv2.circle(self.img, (int(x),int(y)), 1 ,(r,g,b), -1)
+
+    cv2.imshow('img',img)
+    cv2.waitKey(1)
+
+    
+
+    
+
+
             
   def get_obstacle_pos (self,depth_gaussian,drone_x,drone_y,roll,pitch,yaw):
     
    
-    depth_z = depth_gaussian * np.cos(pitch)
+    depth_z = depth_gaussian/10 * np.cos(pitch)
+
+    drone_x *= 100
+    drone_y *= 100
 
     obstacle_x = drone_x + depth_z * np.cos(yaw)
     
