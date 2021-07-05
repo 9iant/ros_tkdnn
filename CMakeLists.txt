@@ -156,6 +156,8 @@ add_message_files(
   FILES
   yolo_coordinate.msg
   yolo_coordinateArray.msg
+  depth_info.msg
+
 
   
 )
