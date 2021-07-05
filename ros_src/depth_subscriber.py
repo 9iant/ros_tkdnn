@@ -30,7 +30,7 @@ class image_converter:
     self.bridge = CvBridge()
     self.depth_sub = rospy.Subscriber("/camera/depth/image_rect_raw",Image,self.depth_cb)
     self.yolo_sub = rospy.Subscriber("/yolo_output",yolo_coordinateArray,self.yolo_cb)
-    self.depth_gaussian_pub = rospy.Publisher("/depth_gaussian", depth_info, queue_size = 1)
+    self.depth_estimator_pub = rospy.Publisher("/depth_estimator", depth_info, queue_size = 1)
     self.depth_info = depth_info()
 
     self.slam_odom = rospy.Subscriber("/ov_msckf/poseimu", PoseWithCovarianceStamped, self.slam_cb)
@@ -41,9 +41,9 @@ class image_converter:
    # self.depth_image_pub = rospy.Publisher("/depth_image_pub", Image, queue_size = 1)
 
     self.depth_flag = False
-
+    self.slam_flag = False
   def slam_cb(self,data):
-    
+    self.slam_flag = True
     self.drone_x = data.pose.pose.position.x
     self.drone_y = data.pose.pose.position.y
 
@@ -62,7 +62,7 @@ class image_converter:
 
   def yolo_cb(self,data):
 
-    if data.results and (self.depth_flag == True):
+    if data.results and (self.depth_flag == True) and (self.slam_flag == True):
 
       for idx in range(len(data.results)):
 
@@ -79,7 +79,6 @@ class image_converter:
 
         self.depth_value_list = []
 
-
         for point in self.gaussian_sampling:
 
           self.depth_value_list.append(self.get_depth( int(point[0]), int(point[1])))  
@@ -87,20 +86,34 @@ class image_converter:
         # Choose representative point (minimum depth)
       
         depth_min = np.max(self.depth_value_list)
+
         for depth in self.depth_value_list:
           
           if depth > 0 and depth < depth_min:
+
             depth_min = depth 
 
           if depth_min == 0:
+
             rospy.roswarn("minimum depth is 0, ERROR")
           
 
         self.depth_value_gaussian = depth_min
-        # print("RUN")
+    
+
         # Get Obstacle Position based on SLAM odom
 
         obstacle_x, obstacle_y = self.get_obstacle_pos(self.depth_value_gaussian, self.drone_x, self.drone_y, self.roll , self.pitch , self.yaw)
+
+        self.depth_info.depth = self.depth_value_gaussian
+
+        self.depth_info.label = data.results[idx].label
+
+        self.depth_info.x_center = int(obstacle_x)
+
+        self.depth_info.y_center = int(obstacle_y)
+        print(self.depth_info)
+        self.depth_estimator_pub.publish(self.depth_info)
 
             
   def get_obstacle_pos (self,depth_gaussian,drone_x,drone_y,roll,pitch,yaw):
@@ -109,6 +122,7 @@ class image_converter:
     depth_z = depth_gaussian * np.cos(pitch)
 
     obstacle_x = drone_x + depth_z * np.cos(yaw)
+    
     obstacle_y = drone_y + depth_z * np.sin(yaw)
 
     return obstacle_x, obstacle_y
