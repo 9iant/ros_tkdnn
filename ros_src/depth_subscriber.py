@@ -54,6 +54,7 @@ class image_converter:
 
   def slam_cb(self,data):
     self.slam_flag = True
+    
     self.drone_x = data.pose.pose.position.x
     self.drone_y = data.pose.pose.position.y
 
