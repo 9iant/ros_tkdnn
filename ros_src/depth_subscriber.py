@@ -79,15 +79,10 @@ class image_converter:
 
         self.depth_value_list = []
 
-        point_x = []
-        point_y = []
 
         for point in self.gaussian_sampling:
 
           self.depth_value_list.append(self.get_depth( int(point[0]), int(point[1])))  
-    
-          point_x.append(int(point[0]))
-          point_y.append(int(point[1]))
 
         # Choose representative point (minimum depth)
       
@@ -107,28 +102,6 @@ class image_converter:
 
         obstacle_x, obstacle_y = self.get_obstacle_pos(self.depth_value_gaussian, self.drone_x, self.drone_y, self.roll , self.pitch , self.yaw)
 
-
-
-        # self.depth_info.depth = self.depth_value_gaussian
-        # self.depth_info.label = data.results[idx].label
-        # self.depth_info.x_center = data.results[idx].x_center
-        # self.depth_info.y_center = data.results[idx].y_center
-
-       # rospy.loginfo(self.depth_info)
-      #   self.depth_gaussian_pub.publish(self.depth_info) 
-
-
-      #   self.point_x = int(np.mean(point_x))
-      #   self.point_y = int(np.mean(point_y))
-        
-      #   self.cv_rgb_image = cv2.circle(
-      #     self.cv_rgb_image, (self.point_x, self.point_y), 7, (0,255,0), -1)
-
-      # self.depth_image_pub.publish(CvBridge().cv2_to_imgmsg(self.cv_rgb_image, encoding="bgr8"))
-
-    else:
-      pass
-      #rospy.logwarn("no detection")
             
   def get_obstacle_pos (self,depth_gaussian,drone_x,drone_y,roll,pitch,yaw):
     
