@@ -1,4 +1,3 @@
-float32 depth
 string label
-int32 x_center
-int32 y_center
+float32 x
+float32 y

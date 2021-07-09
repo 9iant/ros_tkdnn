@@ -34,14 +34,16 @@ class image_converter:
   def __init__(self):
 
     self.vis_pub = rospy.Publisher("/depth_estimator/vis",Marker, queue_size=1)
-    self.depth_estimator_pub = rospy.Publisher("/depth_estimator/depth_info", depth_info, queue_size = 1)
+    self.depth_info_pub = rospy.Publisher("/depth_estimator/depth_info", depth_info, queue_size = 1)
+    self.depth_info = depth_info()
+
     self.object_estimator = rospy.Publisher("/depth_estimator/object_position", PoseStamped, queue_size = 1)
 
     self.bridge = CvBridge()
     self.depth_sub = rospy.Subscriber("/d435/depth/image_raw",Image,self.depth_cb)
     self.yolo_sub = rospy.Subscriber("/yolo_output",yolo_coordinateArray,self.yolo_cb)
 
-    self.depth_info = depth_info()
+    
 
     
     
@@ -106,9 +108,19 @@ class image_converter:
           if depth > 0 and depth < depth_min:
 
             depth_min = depth 
+
             if depth_min != 0:
+
               self.depth_value_gaussian = depth_min 
+
               object_x, object_y = self.get_object_pos(data.results[idx].x_center,data.results[idx].y_center,self.depth_value_gaussian)
+
+              self.depth_info.x = object_x
+              self.depth_info.y = object_y
+              self.depth_info.label = data.results[idx].label
+              self.depth_info_pub.publish(self.depth_info)
+              
+
 
           # if depth_min == 0:
 
@@ -192,9 +204,13 @@ class image_converter:
     Pm_pub.pose.position.y = Pm[1] / 1000.0 # mm -> m 
     Pm_pub.pose.position.z = Pm[2] / 1000.0 # mm -> m 
     
-    print(Pm_pub)
-    # self.object_estimator.publish(Pm)
+    self.draw_in_rviz(Pm_pub.pose.position.x,Pm_pub.pose.position.y, Pm_pub.pose.position.z)
 
+    
+    # self.object_estimator.publish(Pm)
+    return Pm_pub.pose.position.x, Pm_pub.pose.position.y
+
+  def draw_in_rviz(self,x,y,z):
     self.marker = Marker()
 
     self.marker.header.frame_id = "world"
@@ -203,9 +219,9 @@ class image_converter:
     self.marker.id = 0
     self.marker.type = 1
     self.marker.action = Marker.ADD
-    self.marker.pose.position.x = Pm_pub.pose.position.x
-    self.marker.pose.position.y = Pm_pub.pose.position.y
-    self.marker.pose.position.z = Pm_pub.pose.position.z
+    self.marker.pose.position.x = x
+    self.marker.pose.position.y = y
+    self.marker.pose.position.z = z
     self.marker.pose.orientation.x = 0.0
     self.marker.pose.orientation.y = 0.0
     self.marker.pose.orientation.z = 0.0
@@ -217,14 +233,10 @@ class image_converter:
     self.marker.color.r = 0.0
     self.marker.color.g = 1.0
     self.marker.color.b = 0.0
-    
+
     # self.marker.mesh_resource = "package://pr2_description/meshes/base_v0/base.dae"
     self.vis_pub.publish(self.marker)
-
-    
-
-    return trans, rot
-
+    rospy.loginfo("marker has been published")
   def draw_top_view(self, x, y,r,g,b):
 
     
