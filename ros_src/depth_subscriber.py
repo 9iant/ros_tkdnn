@@ -27,30 +27,28 @@ import numpy as np
 import tf
 import turtlesim.msg
 
+from visualization_msgs.msg import Marker
 
 class image_converter:
 
   def __init__(self):
-    
-   # self.cv_depth_image = None
-    self.img = np.zeros(shape=(1000,1000,3))
+
+    self.vis_pub = rospy.Publisher("/depth_estimator/vis",Marker, queue_size=1)
+    self.depth_estimator_pub = rospy.Publisher("/depth_estimator/depth_info", depth_info, queue_size = 1)
+    self.object_estimator = rospy.Publisher("/depth_estimator/object_position", PoseStamped, queue_size = 1)
 
     self.bridge = CvBridge()
     self.depth_sub = rospy.Subscriber("/d435/depth/image_raw",Image,self.depth_cb)
     self.yolo_sub = rospy.Subscriber("/yolo_output",yolo_coordinateArray,self.yolo_cb)
-    self.depth_estimator_pub = rospy.Publisher("/depth_estimator", depth_info, queue_size = 1)
+
     self.depth_info = depth_info()
 
-    self.object_estimator = rospy.Publisher("/object_estimator", PoseStamped, queue_size = 1)
+    
     
     self.listener = tf.TransformListener()
 
     self.slam_odom = rospy.Subscriber("/gazebo_camera_pose", PoseStamped, self.slam_cb)
-   # self.rgb_sub = rospy.Subscriber("/camera/color/image_raw",Image,self.rgb_cb)
-    # subscribe yolo output
-    
-   # self.depth_pub = rospy.Publisher("/depth_center", UInt16, queue_size = 1)
-   # self.depth_image_pub = rospy.Publisher("/depth_image_pub", Image, queue_size = 1)
+   
 
     self.depth_flag = False
     self.slam_flag = False
@@ -77,7 +75,7 @@ class image_converter:
     self.cv_depth_image = self.bridge.imgmsg_to_cv2(data, data.encoding)
 
   def yolo_cb(self,data):
-   # print(len(data.results),self.depth_flag, self.slam_flag)
+    # print(len(data.results),self.depth_flag, self.slam_flag)
     if data.results and (self.depth_flag == True) and (self.slam_flag == True):
 
       for idx in range(len(data.results)):
@@ -179,7 +177,7 @@ class image_converter:
    # print(Tmc)
     # Pm = Tmc * Pc ( Pc = [x y z 1]')
     
-    Pc = np.array([[x.item()], [y.item()], [z.item()], [1]])
+    Pc = np.array([[z.item()], [x.item()], [y.item()], [1]])
    # print(np.array([x.item(), y.item(), z.item(), 1]))
     #print(Pc)
     Pm = np.matmul(Tmc, Pc)
@@ -190,12 +188,40 @@ class image_converter:
     Pm_pub = PoseStamped()
 
     Pm_pub.header.stamp = rospy.Time.now()
-    Pm_pub.pose.position.x = Pm[0]  
-    Pm_pub.pose.position.y = Pm[1] 
-    Pm_pub.pose.position.z = Pm[2] 
+    Pm_pub.pose.position.x = Pm[0] / 1000.0 # mm -> m 
+    Pm_pub.pose.position.y = Pm[1] / 1000.0 # mm -> m 
+    Pm_pub.pose.position.z = Pm[2] / 1000.0 # mm -> m 
     
     print(Pm_pub)
     # self.object_estimator.publish(Pm)
+
+    self.marker = Marker()
+
+    self.marker.header.frame_id = "world"
+    self.marker.header.stamp = rospy.Time.now()
+    self.marker.ns = "my_namespace"
+    self.marker.id = 0
+    self.marker.type = 1
+    self.marker.action = Marker.ADD
+    self.marker.pose.position.x = Pm_pub.pose.position.x
+    self.marker.pose.position.y = Pm_pub.pose.position.y
+    self.marker.pose.position.z = Pm_pub.pose.position.z
+    self.marker.pose.orientation.x = 0.0
+    self.marker.pose.orientation.y = 0.0
+    self.marker.pose.orientation.z = 0.0
+    self.marker.pose.orientation.w = 1.0
+    self.marker.scale.x = 0.5
+    self.marker.scale.y = 0.5
+    self.marker.scale.z = 0.5
+    self.marker.color.a = 1.0 # Don't forget to set the alpha!
+    self.marker.color.r = 0.0
+    self.marker.color.g = 1.0
+    self.marker.color.b = 0.0
+    
+    # self.marker.mesh_resource = "package://pr2_description/meshes/base_v0/base.dae"
+    self.vis_pub.publish(self.marker)
+
+    
 
     return trans, rot
 
