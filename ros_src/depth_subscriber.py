@@ -28,10 +28,14 @@ import tf
 import turtlesim.msg
 
 from visualization_msgs.msg import Marker
+import pandas as pd
 
 class image_converter:
 
   def __init__(self):
+
+
+    self.data = pd.DataFrame(columns=['label','x','y'])
 
     self.vis_pub = rospy.Publisher("/depth_estimator/vis",Marker, queue_size=1)
     self.depth_info_pub = rospy.Publisher("/depth_estimator/depth_info", depth_info, queue_size = 1)
@@ -119,7 +123,23 @@ class image_converter:
               self.depth_info.y = object_y
               self.depth_info.label = data.results[idx].label
               self.depth_info_pub.publish(self.depth_info)
-              
+
+              import os
+
+              os.system("echo {},{},{} >> pos.txt".format(data.results[idx].label, object_x.item(), object_y.item()))
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
           # if depth_min == 0:
