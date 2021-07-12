@@ -22,6 +22,12 @@ from tf.transformations import *
 import numpy as np
 
 
+depth_width, depth_height = 1280, 720 ########################################
+rgb_width, rgb_height = 640, 480 ################################################
+
+width_factor = 1.0 * depth_width / rgb_width  
+height_factor = 1.0 * depth_height / rgb_height
+
 # import matplotlib.pyplot as plt
 
 import tf
@@ -29,12 +35,6 @@ import turtlesim.msg
 
 from visualization_msgs.msg import Marker
 import pandas as pd
-
-depth_width, depth_height = 1280, 720 ########################################
-rgb_width, rgb_height = 640, 480 ################################################
-
-width_factor = 1.0 * depth_width / rgb_width  
-height_factor = 1.0 * depth_height / rgb_height
 
 class image_converter:
 
@@ -50,11 +50,11 @@ class image_converter:
     self.object_estimator = rospy.Publisher("/depth_estimator/object_position", PoseStamped, queue_size = 1)
 
     self.bridge = CvBridge()
-    self.depth_sub = rospy.Subscriber("/d435/camera/depth/image_raw",Image,self.depth_cb)
+    self.depth_sub = rospy.Subscriber("/d435/depth/image_raw",Image,self.depth_cb)
     self.yolo_sub = rospy.Subscriber("/yolo_output",yolo_coordinateArray,self.yolo_cb)
 
     
-    self.pose_sub = rospy.Subscriber("/gazebo_camera_pose", PoseStamped, self.pose_cb)
+
     
     
     self.listener = tf.TransformListener()
@@ -65,14 +65,7 @@ class image_converter:
     self.depth_flag = False
     self.slam_flag = False
 
-  def pose_cb(self, data):
-    self.cam_x = data.pose.position.x
-    self.cam_y = data.pose.position.y
-    self.cam_z = data.pose.position.z
-    self.q0 = data.pose.orientation.x
-    self.q1 = data.pose.orientation.y
-    self.q2 = data.pose.orientation.z
-    self.q3 = data.pose.orientation.w
+
 
   def slam_cb(self,data):
     self.slam_flag = True
@@ -102,8 +95,6 @@ class image_converter:
         # Get center of box
         self.center_of_box = (data.results[idx].x_center,data.results[idx].y_center)
 
-        print("center of box :", self.center_of_box)
-
         # Gaussian sampling 
         num_samples = 1000
         
@@ -131,7 +122,7 @@ class image_converter:
             if depth_min != 0:
             
               self.depth_value_gaussian = depth_min 
-              print("depth : ", self.depth_value_gaussian)
+
               object_x, object_y = self.get_object_pos(data.results[idx].x_center,data.results[idx].y_center,self.depth_value_gaussian)
 
               self.depth_info.x = object_x
@@ -143,6 +134,45 @@ class image_converter:
 
               # os.system("echo {},{},{} >> pos.txt".format(data.results[idx].label, object_x.item(), object_y.item()))
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+          # if depth_min == 0:
+
+          #   rospy.logwarn("minimum depth is 0, ERROR")
+          
+
+    
+    
+
+        # Get Obstacle Position based on SLAM odom
+
+       # obstacle_x, obstacle_y = self.get_obstacle_pos(self.depth_value_gaussian, self.drone_x, self.drone_y, self.roll , self.pitch , self.yaw)
+        # object_x, object_y = self.get_object_pos(data.results[idx].x_center,data.results[idx].y_center,self.depth_value_gaussian)
+        # self.depth_info.depth = self.depth_value_gaussian/10.0 # centi meter
+
+        # self.depth_info.label = data.results[idx].label
+
+        # self.depth_info.x_center = int(object_x)
+
+        # self.depth_info.y_center = int(object_y)
+        # print(self.depth_info)
+        # self.depth_estimator_pub.publish(self.depth_info)
+
+
+        # self.draw_top_view(object_x,object_y,255,255,255)
+        # self.draw_top_view(self.drone_x*100,self.drone_y*100,0,255,255)
 
   def get_object_pos(self,u,v,z):
     side = 'gazebo'
@@ -198,20 +228,6 @@ class image_converter:
 
     # Pm = np.array([1000,0,-trans[2]*1000])
     # geometry_msgs/Posestamped
-#
-
-    K = np.matrix([[fx, 0, cx],[0, fy, cy], [0, 0, 1]])
-    pp = np.matrix([[u*zz,v*zz,zz]]).transpose()/1000.0
-    T = np.matrix([trans[0],trans[1],trans[2]]).transpose()
-    R = np.matrix([[world_cam_R[0][0], world_cam_R[0][1], world_cam_R[0][2]],[world_cam_R[1][0], world_cam_R[1][1], world_cam_R[1][2]],[world_cam_R[2][0], world_cam_R[2][1], world_cam_R[2][2]]])
-
-    
-    
-    Pm = np.matmul(np.linalg.inv(np.matmul(K,R)),(pp - np.matmul(K,T)))
-
-
-
-#
 
     Pm_pub = PoseStamped()
 
@@ -244,7 +260,7 @@ class image_converter:
     self.marker.pose.orientation.x = 0.0
     self.marker.pose.orientation.y = 0.0
     self.marker.pose.orientation.z = 0.0
-    self.marker.pose.orientation.w = 0.0
+    self.marker.pose.orientation.w = 1.0
     self.marker.scale.x = 0.5
     self.marker.scale.y = 0.5
     self.marker.scale.z = 0.5
@@ -255,7 +271,7 @@ class image_converter:
 
     # self.marker.mesh_resource = "package://pr2_description/meshes/base_v0/base.dae"
     self.vis_pub.publish(self.marker)
-    # rospy.loginfo("marker has been published")
+    rospy.loginfo("marker has been published")
   def draw_top_view(self, x, y,r,g,b):
 
     
@@ -292,7 +308,7 @@ class image_converter:
     x = int(x * width_factor)
     y = int(y * height_factor)
     return self.cv_depth_image[y][x]
-    
+  
 
 
   def rgb_cb(self,data):
