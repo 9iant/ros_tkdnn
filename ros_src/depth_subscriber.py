@@ -81,7 +81,7 @@ class image_converter:
     self.cv_depth_image = self.bridge.imgmsg_to_cv2(data, data.encoding)
 
   def yolo_cb(self,data):
-    # print(len(data.results),self.depth_flag, self.slam_flag)
+    print(len(data.results),self.depth_flag, self.slam_flag)
     if data.results and (self.depth_flag == True) and (self.slam_flag == True):
 
       for idx in range(len(data.results)):
@@ -207,7 +207,7 @@ class image_converter:
    # print(Tmc)
     # Pm = Tmc * Pc ( Pc = [x y z 1]')
     
-    Pc = np.array([[z.item()], [x.item()], [y.item()], [1]])
+    Pc = np.array([[z.item()], [-x.item()], [y.item()], [1]])
    # print(np.array([x.item(), y.item(), z.item(), 1]))
     #print(Pc)
     Pm = np.matmul(Tmc, Pc)
@@ -218,9 +218,9 @@ class image_converter:
     Pm_pub = PoseStamped()
 
     Pm_pub.header.stamp = rospy.Time.now()
-    Pm_pub.pose.position.x = Pm[0] / 1000.0 # mm -> m 
-    Pm_pub.pose.position.y = Pm[1] / 1000.0 # mm -> m 
-    Pm_pub.pose.position.z = Pm[2] / 1000.0 # mm -> m 
+    Pm_pub.pose.position.x = Pm[0] / 1000.0
+    Pm_pub.pose.position.y = Pm[1] / 1000.0
+    Pm_pub.pose.position.z = Pm[2] / 1000.0
     
     self.draw_in_rviz(Pm_pub.pose.position.x,Pm_pub.pose.position.y, Pm_pub.pose.position.z)
 
