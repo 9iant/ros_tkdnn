@@ -106,15 +106,15 @@ class image_converter:
         # Choose representative point (minimum depth)
       
         depth_min = np.max(self.depth_value_list)
-
+        print("min:",depth_min)
         for depth in self.depth_value_list:
           
           if depth > 0 and depth < depth_min:
-
+            
             depth_min = depth 
-
+            
             if depth_min != 0:
-
+            
               self.depth_value_gaussian = depth_min 
 
               object_x, object_y = self.get_object_pos(data.results[idx].x_center,data.results[idx].y_center,self.depth_value_gaussian)
@@ -124,9 +124,9 @@ class image_converter:
               self.depth_info.label = data.results[idx].label
               self.depth_info_pub.publish(self.depth_info)
 
-              import os
+              # import os
 
-              os.system("echo {},{},{} >> pos.txt".format(data.results[idx].label, object_x.item(), object_y.item()))
+              # os.system("echo {},{},{} >> pos.txt".format(data.results[idx].label, object_x.item(), object_y.item()))
 
 
 
@@ -169,8 +169,13 @@ class image_converter:
         # self.draw_top_view(self.drone_x*100,self.drone_y*100,0,255,255)
 
   def get_object_pos(self,u,v,z):
-    side = 'left'
-    if side == 'left':
+    side = 'gazebo'
+    if side == 'gazebo':
+      fx = 695.9951171875
+      fy = 695.9951171875
+      cx = 640.0
+      cy = 360.0
+    elif side == 'left':
       fx = 382.3295018608584
       fy = 381.7717111167475
       cx = 320.9189895208528
@@ -188,7 +193,8 @@ class image_converter:
     x,y,z = z*np.linalg.inv(np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])) * np.matrix([[u],[v],[1]])
    
     try:
-      (trans, rot) = self.listener.lookupTransform('/world', 'camera_d435', rospy.Time(0))
+      (trans, rot) = self.listener.lookupTransform('/camera_d435', 'world', rospy.Time(0))
+      # (trans, rot) = self.listener.lookupTransform('world', '/camera_d435', rospy.Time(0))
     except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
       print("except")
 
@@ -201,26 +207,33 @@ class image_converter:
     world_cam_T = tf.transformations.translation_matrix((trans[0],trans[1],trans[2]))
     world_cam_R = tf.transformations.quaternion_matrix((rot[0],rot[1],rot[2],rot[3]))
     # generate TF matrix in python(Tmc)
+    Tcm = np.matmul(world_cam_T,world_cam_R)
+    # Tcm = np.linalg.inv(np.matmul(world_cam_T,-world_cam_R))
 
-    Tmc = np.matmul(world_cam_T, world_cam_R)
-
-   # print(Tmc)
     # Pm = Tmc * Pc ( Pc = [x y z 1]')
-    
-    Pc = np.array([[z.item()], [-x.item()], [y.item()], [1]])
+    # print(trans)
+    # Pc = np.array([[z.item()], [-x.item()], [-y.item()], [1]])
    # print(np.array([x.item(), y.item(), z.item(), 1]))
-    #print(Pc)
-    Pm = np.matmul(Tmc, Pc)
-    # print("===")
-    # print(Pm)
+    # print(Pc)
+    # Pm = np.matmul(Tmc, np.array([x.item(), y.item(), z.item()]))
+    # Pm = np.matmul(Tmc, np.array([[1000], [0], [0], [1]]))
+    print(Tcm)
+    Pm = np.matmul(Tcm, np.array([[1], [0], [0], [1]]))
+
+    # Pm = np.array([1000,0,-trans[2]*1000])
+    print("===")
+    print(Pm)
     # geometry_msgs/Posestamped
 
     Pm_pub = PoseStamped()
 
     Pm_pub.header.stamp = rospy.Time.now()
-    Pm_pub.pose.position.x = Pm[0] / 1000.0
-    Pm_pub.pose.position.y = Pm[1] / 1000.0
-    Pm_pub.pose.position.z = Pm[2] / 1000.0
+    # Pm_pub.pose.position.x = Pm[0] / 1000.0
+    # Pm_pub.pose.position.y = Pm[1] / 1000.0
+    # Pm_pub.pose.position.z = Pm[2] / 1000.0
+    Pm_pub.pose.position.x = Pm[0]
+    Pm_pub.pose.position.y = Pm[1]
+    Pm_pub.pose.position.z = Pm[2]
     
     self.draw_in_rviz(Pm_pub.pose.position.x,Pm_pub.pose.position.y, Pm_pub.pose.position.z)
 
@@ -231,7 +244,8 @@ class image_converter:
   def draw_in_rviz(self,x,y,z):
     self.marker = Marker()
 
-    self.marker.header.frame_id = "world"
+    # self.marker.header.frame_id = "world"
+    self.marker.header.frame_id = "camera_d435"
     self.marker.header.stamp = rospy.Time.now()
     self.marker.ns = "my_namespace"
     self.marker.id = 0
@@ -248,9 +262,9 @@ class image_converter:
     self.marker.scale.y = 0.5
     self.marker.scale.z = 0.5
     self.marker.color.a = 1.0 # Don't forget to set the alpha!
-    self.marker.color.r = 0.0
-    self.marker.color.g = 1.0
-    self.marker.color.b = 0.0
+    self.marker.color.r = np.random.randint(255)
+    self.marker.color.g = np.random.randint(255)
+    self.marker.color.b = np.random.randint(255)
 
     # self.marker.mesh_resource = "package://pr2_description/meshes/base_v0/base.dae"
     self.vis_pub.publish(self.marker)
