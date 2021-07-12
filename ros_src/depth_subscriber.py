@@ -48,7 +48,7 @@ class image_converter:
     self.yolo_sub = rospy.Subscriber("/yolo_output",yolo_coordinateArray,self.yolo_cb)
 
     
-
+    self.pose_sub = rospy.Subscriber("/gazebo_camera_pose", PoseStamped, self.pose_cb)
     
     
     self.listener = tf.TransformListener()
@@ -59,7 +59,14 @@ class image_converter:
     self.depth_flag = False
     self.slam_flag = False
 
-
+  def pose_cb(self, data):
+    self.cam_x = data.pose.position.x
+    self.cam_y = data.pose.position.y
+    self.cam_z = data.pose.position.z
+    self.q0 = data.pose.orientation.x
+    self.q1 = data.pose.orientation.y
+    self.q2 = data.pose.orientation.z
+    self.q3 = data.pose.orientation.w
 
   def slam_cb(self,data):
     self.slam_flag = True
@@ -129,72 +136,61 @@ class image_converter:
               os.system("echo {},{},{} >> pos.txt".format(data.results[idx].label, object_x.item(), object_y.item()))
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-          # if depth_min == 0:
-
-          #   rospy.logwarn("minimum depth is 0, ERROR")
-          
-
-    
-    
-
-        # Get Obstacle Position based on SLAM odom
-
-       # obstacle_x, obstacle_y = self.get_obstacle_pos(self.depth_value_gaussian, self.drone_x, self.drone_y, self.roll , self.pitch , self.yaw)
-        # object_x, object_y = self.get_object_pos(data.results[idx].x_center,data.results[idx].y_center,self.depth_value_gaussian)
-        # self.depth_info.depth = self.depth_value_gaussian/10.0 # centi meter
-
-        # self.depth_info.label = data.results[idx].label
-
-        # self.depth_info.x_center = int(object_x)
-
-        # self.depth_info.y_center = int(object_y)
-        # print(self.depth_info)
-        # self.depth_estimator_pub.publish(self.depth_info)
-
-
-        # self.draw_top_view(object_x,object_y,255,255,255)
-        # self.draw_top_view(self.drone_x*100,self.drone_y*100,0,255,255)
-
   def get_object_pos(self,u,v,z):
-    side = 'left'
-    if side == 'left':
-      fx = 382.3295018608584
-      fy = 381.7717111167475
-      cx = 320.9189895208528
-      cy = 234.40496812669917
-
-    elif side == 'right':
-      fx = 382.28892862203827
-      fy = 381.7841853580208
-      cx = 320.69780805182154
-      cy = 234.32116074974246
-
+    
+    #Gazebo
+    fx = 609.0014038085938
+    fy = 609.0014038085938
+    cx = 320.0
+    cy = 240.0
 
     # !! x,y,z's units are different !!
     #Pc
     x,y,z = z*np.linalg.inv(np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])) * np.matrix([[u],[v],[1]])
-   
+    
+    # K = np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])
+
+    # R = np.array([
+    #   [2*(self.q0**2 + self.q1**2)-1, 2*(self.q1*self.q2 - self.q0*self.q3), 2*(self.q1*self.q3 + self.q0*self.q2)],
+    #   [2*(self.q1*self.q2 + self.q0*self.q3), 2*(self.q0**2 + self.q2**2)-1, 2*(self.q2*self.q3 - self.q0*self.q1)],
+    #   [2*(self.q1*self.q3 - self.q0*self.q2), 2*(self.q2*self.q3 + self.q0*self.q1), 2*(self.q0**2 + self.q3**2)-1]
+    #   ])
+    # T = np.array([
+    #   [self.cam_x],
+    #   [self.cam_y],
+    #   [self.cam_z]
+    #   ])
+    # N = np.array([
+    #   [R[0][0],R[0][1],R[0][2],T[0]],
+    #   [R[1][0],R[1][1],R[1][2],T[1]],
+    #   [R[2][0],R[2][1],R[2][2],T[2]],
+    #   [0,0,0,1]
+
+    #   ])
+    # M = np.array([
+    #   [1,0,0,0],
+    #   [0,1,0,0],
+    #   [0,0,1,0],
+    #   ])
+    
+    # print(K*M*N)
+
+    # X = u/((K*M*N)[0][0] + (K*M*N)[1][0] + (K*M*N)[2][0])
+    # Y = v/((K*M*N)[0][1] + (K*M*N)[1][1] + (K*M*N)[2][1])
+    # Z = z/((K*M*N)[0][2] + (K*M*N)[1][2] + (K*M*N)[2][2])
+    # print(X,Y,Z)
+    # X,Y,Z = z * np.linalg.inv(M) * np.linalg.inv(N) * np.linalg.inv(np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])) * np.matrix([[u],[v],[1]])
+    # Pm_pub = PoseStamped()
+    # Pm_pub.header.stamp = rospy.Time.now()
+    # Pm_pub.pose.position.x = X / 1000.0
+    # Pm_pub.pose.position.y = Y / 1000.0
+    # Pm_pub.pose.position.z = Z / 1000.0
+    
     try:
       (trans, rot) = self.listener.lookupTransform('/world', 'camera_d435', rospy.Time(0))
     except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
       print("except")
 
-    
-
-    
     # get camera static tf and certify 
     # get transformation matrix Tmc 
     
@@ -207,7 +203,8 @@ class image_converter:
    # print(Tmc)
     # Pm = Tmc * Pc ( Pc = [x y z 1]')
     
-    Pc = np.array([[z.item()], [x.item()], [y.item()], [1]])
+    #Pc = np.array([[z.item()], [x.item()], [y.item()], [1]])########
+    Pc = np.array([[z.item()], [-y.item()], [-x.item()], [1]])
    # print(np.array([x.item(), y.item(), z.item(), 1]))
     #print(Pc)
     Pm = np.matmul(Tmc, Pc)
@@ -243,7 +240,7 @@ class image_converter:
     self.marker.pose.orientation.x = 0.0
     self.marker.pose.orientation.y = 0.0
     self.marker.pose.orientation.z = 0.0
-    self.marker.pose.orientation.w = 1.0
+    self.marker.pose.orientation.w = 0.0
     self.marker.scale.x = 0.5
     self.marker.scale.y = 0.5
     self.marker.scale.z = 0.5
