@@ -192,9 +192,7 @@ class image_converter:
     except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
       print("except")
 
-    # print("Trans : ",trans)
-    # print("ROt: ",rot)
-
+    
 
     
     # get camera static tf and certify 
