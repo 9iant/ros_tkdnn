@@ -44,7 +44,7 @@ class image_converter:
     self.object_estimator = rospy.Publisher("/depth_estimator/object_position", PoseStamped, queue_size = 1)
 
     self.bridge = CvBridge()
-    self.depth_sub = rospy.Subscriber("/d435/depth/image_raw",Image,self.depth_cb)
+    self.depth_sub = rospy.Subscriber("/d435/camera/depth/image_raw",Image,self.depth_cb)
     self.yolo_sub = rospy.Subscriber("/yolo_output",yolo_coordinateArray,self.yolo_cb)
 
     
@@ -96,6 +96,8 @@ class image_converter:
         # Get center of box
         self.center_of_box = (data.results[idx].x_center,data.results[idx].y_center)
 
+        print("center of box :", self.center_of_box)
+
         # Gaussian sampling 
         num_samples = 1000
         
@@ -123,7 +125,7 @@ class image_converter:
             if depth_min != 0:
 
               self.depth_value_gaussian = depth_min 
-
+              print("depth : ", self.depth_value_gaussian)
               object_x, object_y = self.get_object_pos(data.results[idx].x_center,data.results[idx].y_center,self.depth_value_gaussian)
 
               self.depth_info.x = object_x
@@ -146,8 +148,9 @@ class image_converter:
 
     # !! x,y,z's units are different !!
     #Pc
+    zz = z
     x,y,z = z*np.linalg.inv(np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])) * np.matrix([[u],[v],[1]])
-    
+    x = np.array([0])
     # K = np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])
 
     # R = np.array([
@@ -204,22 +207,36 @@ class image_converter:
     # Pm = Tmc * Pc ( Pc = [x y z 1]')
     
     #Pc = np.array([[z.item()], [x.item()], [y.item()], [1]])########
-    Pc = np.array([[z.item()], [-y.item()], [-x.item()], [1]])
+    Pc = np.array([[z.item()], [-y.item()], [-x.item()], [1]])/1000.0
    # print(np.array([x.item(), y.item(), z.item(), 1]))
     #print(Pc)
     Pm = np.matmul(Tmc, Pc)
     # print("===")
     # print(Pm)
     # geometry_msgs/Posestamped
+#
+
+    K = np.matrix([[fx, 0, cx],[0, fy, cy], [0, 0, 1]])
+    pp = np.matrix([[u*zz,v*zz,zz]]).transpose()/1000.0
+    T = np.matrix([trans[0],trans[1],trans[2]]).transpose()
+    R = np.matrix([[world_cam_R[0][0], world_cam_R[0][1], world_cam_R[0][2]],[world_cam_R[1][0], world_cam_R[1][1], world_cam_R[1][2]],[world_cam_R[2][0], world_cam_R[2][1], world_cam_R[2][2]]])
+
+    
+    
+    Pm = np.matmul(np.linalg.inv(np.matmul(K,R)),(pp - np.matmul(K,T)))
+
+
+
+#
 
     Pm_pub = PoseStamped()
 
     Pm_pub.header.stamp = rospy.Time.now()
-    Pm_pub.pose.position.x = Pm[0] / 1000.0 # mm -> m 
-    Pm_pub.pose.position.y = Pm[1] / 1000.0 # mm -> m 
-    Pm_pub.pose.position.z = Pm[2] / 1000.0 # mm -> m 
-    
-    self.draw_in_rviz(Pm_pub.pose.position.x,Pm_pub.pose.position.y, Pm_pub.pose.position.z)
+    Pm_pub.pose.position.x = Pm[0]
+    Pm_pub.pose.position.y = Pm[1]
+    Pm_pub.pose.position.z = Pm[2]
+    self.object_estimator.publish(Pm_pub.pose.position.x,Pm_pub.pose.position.y,Pm_pub.pose.position.z)
+    self.draw_in_rviz(Pm_pub)
 
     
     # self.object_estimator.publish(Pm)
@@ -245,13 +262,13 @@ class image_converter:
     self.marker.scale.y = 0.5
     self.marker.scale.z = 0.5
     self.marker.color.a = 1.0 # Don't forget to set the alpha!
-    self.marker.color.r = 0.0
+    self.marker.color.r = np.random.rand()
     self.marker.color.g = 1.0
     self.marker.color.b = 0.0
 
     # self.marker.mesh_resource = "package://pr2_description/meshes/base_v0/base.dae"
     self.vis_pub.publish(self.marker)
-    rospy.loginfo("marker has been published")
+    # rospy.loginfo("marker has been published")
   def draw_top_view(self, x, y,r,g,b):
 
     
@@ -286,7 +303,7 @@ class image_converter:
     
   def get_depth(self,x,y):
 
-    return self.cv_depth_image[x][y]
+    return self.cv_depth_image[y][x]
     
 
 
