@@ -30,6 +30,12 @@ import turtlesim.msg
 from visualization_msgs.msg import Marker
 import pandas as pd
 
+depth_width, depth_height = 1280, 720 ########################################
+rgb_width, rgb_height = 640, 480 ################################################
+
+width_factor = 1.0 * depth_width / rgb_width  
+height_factor = 1.0 * depth_height / rgb_height
+
 class image_converter:
 
   def __init__(self):
@@ -190,14 +196,15 @@ class image_converter:
 
     # !! x,y,z's units are different !!
     #Pc
-    x,y,z = z*np.linalg.inv(np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])) * np.matrix([[u],[v],[1]])
-   
+    print('z : ', z)
+    x,y,z = z*np.linalg.inv(np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])) * np.matrix([[u],[v],[1]]) / 1000.0
+    
     try:
-      (trans, rot) = self.listener.lookupTransform('/camera_d435', 'world', rospy.Time(0))
-      # (trans, rot) = self.listener.lookupTransform('world', '/camera_d435', rospy.Time(0))
+      # (trans, rot) = self.listener.lookupTransform('/camera_d435', 'world', rospy.Time(0))
+      (trans, rot) = self.listener.lookupTransform('world', '/camera_d435', rospy.Time(0))
     except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
       print("except")
-
+    # print('x y z : ', x,y,z)
     
 
     
@@ -207,7 +214,7 @@ class image_converter:
     world_cam_T = tf.transformations.translation_matrix((trans[0],trans[1],trans[2]))
     world_cam_R = tf.transformations.quaternion_matrix((rot[0],rot[1],rot[2],rot[3]))
     # generate TF matrix in python(Tmc)
-    Tcm = np.matmul(world_cam_T,world_cam_R)
+    Tmc = np.matmul(world_cam_T,world_cam_R)
     # Tcm = np.linalg.inv(np.matmul(world_cam_T,-world_cam_R))
 
     # Pm = Tmc * Pc ( Pc = [x y z 1]')
@@ -217,12 +224,9 @@ class image_converter:
     # print(Pc)
     # Pm = np.matmul(Tmc, np.array([x.item(), y.item(), z.item()]))
     # Pm = np.matmul(Tmc, np.array([[1000], [0], [0], [1]]))
-    print(Tcm)
-    Pm = np.matmul(Tcm, np.array([[1], [0], [0], [1]]))
+    Pm = np.matmul(Tmc, np.array([[x.item()], [y.item()], [z.item()], [1]]))
 
     # Pm = np.array([1000,0,-trans[2]*1000])
-    print("===")
-    print(Pm)
     # geometry_msgs/Posestamped
 
     Pm_pub = PoseStamped()
@@ -244,8 +248,7 @@ class image_converter:
   def draw_in_rviz(self,x,y,z):
     self.marker = Marker()
 
-    # self.marker.header.frame_id = "world"
-    self.marker.header.frame_id = "camera_d435"
+    self.marker.header.frame_id = "world"
     self.marker.header.stamp = rospy.Time.now()
     self.marker.ns = "my_namespace"
     self.marker.id = 0
@@ -301,9 +304,10 @@ class image_converter:
 
   #   return obstacle_x, obstacle_y
     
-  def get_depth(self,x,y):
-
-    return self.cv_depth_image[x][y]
+  def get_depth(self,x,y): # x y in rgb image
+    x = int(x * width_factor)
+    y = int(y * height_factor)
+    return self.cv_depth_image[y][x]
     
 
 
