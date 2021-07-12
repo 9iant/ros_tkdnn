@@ -30,6 +30,12 @@ import turtlesim.msg
 from visualization_msgs.msg import Marker
 import pandas as pd
 
+depth_width, depth_height = 1280, 720 ########################################
+rgb_width, rgb_height = 640, 480 ################################################
+
+width_factor = 1.0 * depth_width / rgb_width  
+height_factor = 1.0 * depth_height / rgb_height
+
 class image_converter:
 
   def __init__(self):
@@ -88,7 +94,7 @@ class image_converter:
     self.cv_depth_image = self.bridge.imgmsg_to_cv2(data, data.encoding)
 
   def yolo_cb(self,data):
-    # print(len(data.results),self.depth_flag, self.slam_flag)
+    print(len(data.results),self.depth_flag, self.slam_flag)
     if data.results and (self.depth_flag == True) and (self.slam_flag == True):
 
       for idx in range(len(data.results)):
@@ -115,15 +121,15 @@ class image_converter:
         # Choose representative point (minimum depth)
       
         depth_min = np.max(self.depth_value_list)
-
+        print("min:",depth_min)
         for depth in self.depth_value_list:
           
           if depth > 0 and depth < depth_min:
-
+            
             depth_min = depth 
-
+            
             if depth_min != 0:
-
+            
               self.depth_value_gaussian = depth_min 
               print("depth : ", self.depth_value_gaussian)
               object_x, object_y = self.get_object_pos(data.results[idx].x_center,data.results[idx].y_center,self.depth_value_gaussian)
@@ -133,86 +139,64 @@ class image_converter:
               self.depth_info.label = data.results[idx].label
               self.depth_info_pub.publish(self.depth_info)
 
-              import os
+              # import os
 
-              os.system("echo {},{},{} >> pos.txt".format(data.results[idx].label, object_x.item(), object_y.item()))
+              # os.system("echo {},{},{} >> pos.txt".format(data.results[idx].label, object_x.item(), object_y.item()))
 
 
   def get_object_pos(self,u,v,z):
-    
-    #Gazebo
-    fx = 609.0014038085938
-    fy = 609.0014038085938
-    cx = 320.0
-    cy = 240.0
+    side = 'gazebo'
+    if side == 'gazebo':
+      fx = 695.9951171875
+      fy = 695.9951171875
+      cx = 640.0
+      cy = 360.0
+    elif side == 'left':
+      fx = 382.3295018608584
+      fy = 381.7717111167475
+      cx = 320.9189895208528
+      cy = 234.40496812669917
+
+    elif side == 'right':
+      fx = 382.28892862203827
+      fy = 381.7841853580208
+      cx = 320.69780805182154
+      cy = 234.32116074974246
+
 
     # !! x,y,z's units are different !!
     #Pc
-    zz = z
-    x,y,z = z*np.linalg.inv(np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])) * np.matrix([[u],[v],[1]])
-    x = np.array([0])
-    # K = np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])
-
-    # R = np.array([
-    #   [2*(self.q0**2 + self.q1**2)-1, 2*(self.q1*self.q2 - self.q0*self.q3), 2*(self.q1*self.q3 + self.q0*self.q2)],
-    #   [2*(self.q1*self.q2 + self.q0*self.q3), 2*(self.q0**2 + self.q2**2)-1, 2*(self.q2*self.q3 - self.q0*self.q1)],
-    #   [2*(self.q1*self.q3 - self.q0*self.q2), 2*(self.q2*self.q3 + self.q0*self.q1), 2*(self.q0**2 + self.q3**2)-1]
-    #   ])
-    # T = np.array([
-    #   [self.cam_x],
-    #   [self.cam_y],
-    #   [self.cam_z]
-    #   ])
-    # N = np.array([
-    #   [R[0][0],R[0][1],R[0][2],T[0]],
-    #   [R[1][0],R[1][1],R[1][2],T[1]],
-    #   [R[2][0],R[2][1],R[2][2],T[2]],
-    #   [0,0,0,1]
-
-    #   ])
-    # M = np.array([
-    #   [1,0,0,0],
-    #   [0,1,0,0],
-    #   [0,0,1,0],
-    #   ])
-    
-    # print(K*M*N)
-
-    # X = u/((K*M*N)[0][0] + (K*M*N)[1][0] + (K*M*N)[2][0])
-    # Y = v/((K*M*N)[0][1] + (K*M*N)[1][1] + (K*M*N)[2][1])
-    # Z = z/((K*M*N)[0][2] + (K*M*N)[1][2] + (K*M*N)[2][2])
-    # print(X,Y,Z)
-    # X,Y,Z = z * np.linalg.inv(M) * np.linalg.inv(N) * np.linalg.inv(np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])) * np.matrix([[u],[v],[1]])
-    # Pm_pub = PoseStamped()
-    # Pm_pub.header.stamp = rospy.Time.now()
-    # Pm_pub.pose.position.x = X / 1000.0
-    # Pm_pub.pose.position.y = Y / 1000.0
-    # Pm_pub.pose.position.z = Z / 1000.0
+    print('z : ', z)
+    x,y,z = z*np.linalg.inv(np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])) * np.matrix([[u],[v],[1]]) / 1000.0
     
     try:
-      (trans, rot) = self.listener.lookupTransform('/world', 'camera_d435', rospy.Time(0))
+      # (trans, rot) = self.listener.lookupTransform('/camera_d435', 'world', rospy.Time(0))
+      (trans, rot) = self.listener.lookupTransform('world', '/camera_d435', rospy.Time(0))
     except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
       print("except")
+    # print('x y z : ', x,y,z)
+    
 
+    
     # get camera static tf and certify 
     # get transformation matrix Tmc 
     
     world_cam_T = tf.transformations.translation_matrix((trans[0],trans[1],trans[2]))
     world_cam_R = tf.transformations.quaternion_matrix((rot[0],rot[1],rot[2],rot[3]))
     # generate TF matrix in python(Tmc)
+    Tmc = np.matmul(world_cam_T,world_cam_R)
+    # Tcm = np.linalg.inv(np.matmul(world_cam_T,-world_cam_R))
 
-    Tmc = np.matmul(world_cam_T, world_cam_R)
-
-   # print(Tmc)
     # Pm = Tmc * Pc ( Pc = [x y z 1]')
-    
-    #Pc = np.array([[z.item()], [x.item()], [y.item()], [1]])########
-    Pc = np.array([[z.item()], [-y.item()], [-x.item()], [1]])/1000.0
+    # print(trans)
+    # Pc = np.array([[z.item()], [-x.item()], [-y.item()], [1]])
    # print(np.array([x.item(), y.item(), z.item(), 1]))
-    #print(Pc)
-    Pm = np.matmul(Tmc, Pc)
-    # print("===")
-    # print(Pm)
+    # print(Pc)
+    # Pm = np.matmul(Tmc, np.array([x.item(), y.item(), z.item()]))
+    # Pm = np.matmul(Tmc, np.array([[1000], [0], [0], [1]]))
+    Pm = np.matmul(Tmc, np.array([[x.item()], [y.item()], [z.item()], [1]]))
+
+    # Pm = np.array([1000,0,-trans[2]*1000])
     # geometry_msgs/Posestamped
 #
 
@@ -232,11 +216,14 @@ class image_converter:
     Pm_pub = PoseStamped()
 
     Pm_pub.header.stamp = rospy.Time.now()
+    # Pm_pub.pose.position.x = Pm[0] / 1000.0
+    # Pm_pub.pose.position.y = Pm[1] / 1000.0
+    # Pm_pub.pose.position.z = Pm[2] / 1000.0
     Pm_pub.pose.position.x = Pm[0]
     Pm_pub.pose.position.y = Pm[1]
     Pm_pub.pose.position.z = Pm[2]
-    self.object_estimator.publish(Pm_pub.pose.position.x,Pm_pub.pose.position.y,Pm_pub.pose.position.z)
-    self.draw_in_rviz(Pm_pub)
+    
+    self.draw_in_rviz(Pm_pub.pose.position.x,Pm_pub.pose.position.y, Pm_pub.pose.position.z)
 
     
     # self.object_estimator.publish(Pm)
@@ -262,9 +249,9 @@ class image_converter:
     self.marker.scale.y = 0.5
     self.marker.scale.z = 0.5
     self.marker.color.a = 1.0 # Don't forget to set the alpha!
-    self.marker.color.r = np.random.rand()
-    self.marker.color.g = 1.0
-    self.marker.color.b = 0.0
+    self.marker.color.r = np.random.randint(255)
+    self.marker.color.g = np.random.randint(255)
+    self.marker.color.b = np.random.randint(255)
 
     # self.marker.mesh_resource = "package://pr2_description/meshes/base_v0/base.dae"
     self.vis_pub.publish(self.marker)
@@ -301,8 +288,9 @@ class image_converter:
 
   #   return obstacle_x, obstacle_y
     
-  def get_depth(self,x,y):
-
+  def get_depth(self,x,y): # x y in rgb image
+    x = int(x * width_factor)
+    y = int(y * height_factor)
     return self.cv_depth_image[y][x]
     
 
