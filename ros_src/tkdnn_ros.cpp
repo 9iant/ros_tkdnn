@@ -42,7 +42,7 @@ public:
     : it_(nh_)
     {
         // image_sub_ = it_.subscribe("/camera/color/image_raw",10, &ImageConverter::imageCb,this);
-        image_sub_ = it_.subscribe("/d435/camera/color/image_raw",10, &ImageConverter::imageCb,this);
+        image_sub_ = it_.subscribe("/camera/color/image_raw",10, &ImageConverter::imageCb,this);
 
 
     }

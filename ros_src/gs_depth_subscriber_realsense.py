@@ -15,6 +15,7 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge, CvBridgeError
+from nav_msgs.msg import Odometry
 
 from ros_tkdnn.msg import yolo_coordinateArray
 from ros_tkdnn.msg import depth_info
@@ -63,7 +64,7 @@ class image_converter:
     
     self.listener = tf.TransformListener()
 
-    self.slam_odom = rospy.Subscriber(odometry_topic, PoseStamped, self.slam_cb)
+    self.slam_odom = rospy.Subscriber(odometry_topic, Odometry, self.slam_cb) ##
    
 
     self.depth_flag = False
@@ -108,17 +109,16 @@ class image_converter:
   def slam_cb(self,data):
     self.slam_flag = True
     
-    self.drone_x = data.pose.position.x
-    self.drone_y = data.pose.position.y
+    self.drone_x = data.pose.pose.position.x
+    self.drone_y = data.pose.pose.position.y
 
-    orientation_q = data.pose.orientation
+    orientation_q = data.pose.pose.orientation
     orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
     (self.roll, self.pitch, self.yaw) = euler_from_quaternion(orientation_list)
 
 
   def gs_yolo_cb(self,data):
     if not(self.depth_intrinsics and self.rgb_intrinsics):
-      rospy.
       return
     print(len(data.results),self.depth_flag, self.slam_flag)
     if data.results and (self.depth_flag == True) and (self.slam_flag == True):
@@ -134,7 +134,15 @@ class image_converter:
         x_depth_min, x_depth_max, y_depth_min, y_depth_max = self.reproject_rgb_to_depth(x_min, x_max, y_min, y_max)
 
         croped_image = self.cv_depth_image[y_depth_min:y_depth_max,x_depth_min:x_depth_max]
+        print(np.min(self.cv_depth_image))
+        print("maximum")
+        print(np.max(self.cv_depth_image))
         
+        result_img = cv2.cvtColor(self.cv_depth_image*500, cv2.COLOR_GRAY2BGR)
+        result_img = cv2.rectangle(result_img, (x_min,y_min), (x_max, y_max),(0,0,0), 5)
+
+        cv2.imshow("depth_image",result_img)
+        cv2.waitKey(1)
         depth = np.median(croped_image)
 
         print("median : ", depth)
@@ -223,10 +231,15 @@ class image_converter:
     #Pc
     print('z : ', z)
     x,y,z = z*np.linalg.inv(np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])) * np.matrix([[u],[v],[1]]) / 1000.0
-    
+    # temp_x = x
+    # temp_y = y
+    # temp_z = z
+    # x = temp_z
+    # y = -temp_y
+    # z = temp_x
     try:
       # (trans, rot) = self.listener.lookupTransform('/camera_d435', 'world', rospy.Time(0))
-      (trans, rot) = self.listener.lookupTransform('world', '/camera_d435', rospy.Time(0))
+      (trans, rot) = self.listener.lookupTransform('/map', '/camera_color_optical_frame', rospy.Time(0))
     except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
       print("except")
     # print('x y z : ', x,y,z)
@@ -260,7 +273,7 @@ class image_converter:
   def draw_in_rviz(self,x,y,z):
     self.marker = Marker()
 
-    self.marker.header.frame_id = "world"
+    self.marker.header.frame_id = "/camera_color_optical_frame"
     self.marker.header.stamp = rospy.Time.now()
     self.marker.ns = "my_namespace"
     self.marker.id = 0
@@ -339,11 +352,11 @@ class image_converter:
 
 def main(args):
 
-  depth_camera_topic = "/d435/camera/depth/image_raw"
-  depth_camera_info_topic = "/d435/camera/depth/camera_info"
+  depth_camera_topic = "/camera/depth/image_rect_raw"
+  depth_camera_info_topic = "/camera/depth/camera_info"
   yolo_output_topic = "/yolo_output"
-  rgb_camera_info_topic = "/d435/camera/color/camera_info"
-  odometry_topic = "/gazebo_camera_pose"
+  rgb_camera_info_topic = "/camera/color/camera_info"
+  odometry_topic = "/odometry/filtered"
 
   print("depth_camera_topic = ", depth_camera_info_topic)
 
