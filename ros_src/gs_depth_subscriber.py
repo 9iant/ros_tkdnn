@@ -13,7 +13,7 @@ from std_msgs.msg import UInt8
 
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import PoseStamped
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge, CvBridgeError
 
 from ros_tkdnn.msg import yolo_coordinateArray
@@ -38,7 +38,7 @@ import pandas as pd
 
 class image_converter:
 
-  def __init__(self):
+  def __init__(self, depth_camera_topic, depth_camera_info_topic, yolo_output_topic, rgb_camera_info_topic, odometry_topic):
 
 
     self.data = pd.DataFrame(columns=['label','x','y'])
@@ -50,20 +50,58 @@ class image_converter:
     self.object_estimator = rospy.Publisher("/depth_estimator/object_position", PoseStamped, queue_size = 1)
 
     self.bridge = CvBridge()
-    self.depth_sub = rospy.Subscriber("/d435/camera/depth/image_raw",Image,self.depth_cb)
-    self.yolo_sub = rospy.Subscriber("/yolo_output",yolo_coordinateArray,self.yolo_cb)
 
-    
+    self.depth_sub = rospy.Subscriber(depth_camera_topic,Image,self.depth_cb)
+    self.yolo_sub = rospy.Subscriber(yolo_output_topic,yolo_coordinateArray,self.gs_yolo_cb)
+
+    self.depth_camera_info_sub = rospy.Subscriber(depth_camera_info_topic,CameraInfo, self.depth_camera_info_cb)
+    self.depth_intrinsics = None
+    self.rgb_camera_info_sub = rospy.Subscriber(rgb_camera_info_topic,CameraInfo, self.rgb_camera_info_cb)
+    self.rgb_intrinsics = None
 
     
     
     self.listener = tf.TransformListener()
 
-    self.slam_odom = rospy.Subscriber("/gazebo_camera_pose", PoseStamped, self.slam_cb)
+    self.slam_odom = rospy.Subscriber(odometry_topic, PoseStamped, self.slam_cb)
    
 
     self.depth_flag = False
     self.slam_flag = False
+
+  def depth_camera_info_cb(self, cameraInfo):
+    try:
+      if self.depth_intrinsics:
+        return
+      self.depth_intrinsics = {"width":0, "height":0,"fx":0,"fy":0,"cx":0,"cy":0}
+      self.depth_intrinsics['width'] = cameraInfo.width
+      self.depth_intrinsics['height'] = cameraInfo.height
+      self.depth_intrinsics['fx'] = cameraInfo.K[0]
+      self.depth_intrinsics['fy'] = cameraInfo.K[4]
+      self.depth_intrinsics['cx'] = cameraInfo.K[2]
+      self.depth_intrinsics['cy'] = cameraInfo.K[5]
+      print(self.depth_intrinsics)
+  
+    except CvBridgeError as e:
+        print(e)
+        return
+  def rgb_camera_info_cb(self, cameraInfo):
+    
+    try:
+      if self.rgb_intrinsics:
+        return
+      self.rgb_intrinsics = {"width":0, "height":0,"fx":0,"fy":0,"cx":0,"cy":0}
+      self.rgb_intrinsics['width'] = cameraInfo.width
+      self.rgb_intrinsics['height'] = cameraInfo.height
+      self.rgb_intrinsics['fx'] = cameraInfo.K[0]
+      self.rgb_intrinsics['fy'] = cameraInfo.K[4]
+      self.rgb_intrinsics['cx'] = cameraInfo.K[2]
+      self.rgb_intrinsics['cy'] = cameraInfo.K[5]
+      print(self.rgb_intrinsics)
+  
+    except CvBridgeError as e:
+        print(e)
+        return
 
 
 
@@ -78,15 +116,91 @@ class image_converter:
     (self.roll, self.pitch, self.yaw) = euler_from_quaternion(orientation_list)
 
 
+  def gs_yolo_cb(self,data):
+    if not(self.depth_intrinsics and self.rgb_intrinsics):
+      return
+    print(len(data.results),self.depth_flag, self.slam_flag)
+    if data.results and (self.depth_flag == True) and (self.slam_flag == True):
 
-    
+      for idx in range(len(data.results)):
+
+        # Get center of box
+        self.center_of_box = (data.results[idx].x_center,data.results[idx].y_center)
+        x_min = data.results[idx].xmin
+        x_max = data.results[idx].xmax
+        y_min = data.results[idx].ymin
+        y_max = data.results[idx].ymax
+        x_depth_min, x_depth_max, y_depth_min, y_depth_max = self.reproject_rgb_to_depth(x_min, x_max, y_min, y_max)
+
+
+
+
+        croped_image = self.cv_depth_image[y_depth_min:y_depth_max,x_depth_min:x_depth_max]
+        
+        depth = np.median(croped_image)
+
+        print("median : ", depth)
+
+        self.depth_value_gaussian = depth
+
+        object_x, object_y = self.get_object_pos(data.results[idx].x_center,data.results[idx].y_center,self.depth_value_gaussian)
+
+        self.depth_info.x = object_x
+        self.depth_info.y = object_y
+        self.depth_info.label = data.results[idx].label
+        self.depth_info_pub.publish(self.depth_info)
+        
+        
+        print("====")
+        print(self.center_of_box)
+        # Gaussian sampling 
+        # num_samples = 1000
+        
+        # self.gaussian_sampling = np.random.multivariate_normal(self.center_of_box,
+        #   [[data.results[idx].w,0],[0,data.results[idx].h]], num_samples)
+
+        # # Get depth each point
+
+        # self.depth_value_list = []
+
+        # for point in self.gaussian_sampling:
+
+        #   self.depth_value_list.append(self.get_depth(int(point[0]), int(point[1])))  
+
+        # # Choose representative point (minimum depth)
+      
+        # depth_min = np.max(self.depth_value_list)
+        # print("min:",depth_min)
+        # for depth in self.depth_value_list:
+          
+        #   if depth > 0 and depth < depth_min:
+            
+        #     depth_min = depth 
+            
+        #     if depth_min != 0:
+            
+        #       self.depth_value_gaussian = depth_min 
+
+        #       object_x, object_y = self.get_object_pos(data.results[idx].x_center,data.results[idx].y_center,self.depth_value_gaussian)
+
+        #       self.depth_info.x = object_x
+        #       self.depth_info.y = object_y
+        #       self.depth_info.label = data.results[idx].label
+        #       self.depth_info_pub.publish(self.depth_info)
+
+
+
+
 
   def depth_cb(self,data):
-    
+    if not self.depth_intrinsics:
+      return
     self.depth_flag = True
     self.cv_depth_image = self.bridge.imgmsg_to_cv2(data, data.encoding)
 
   def yolo_cb(self,data):
+    if not(self.depth_intrinsics and self.rgb_intrinsics):
+      return
     print(len(data.results),self.depth_flag, self.slam_flag)
     if data.results and (self.depth_flag == True) and (self.slam_flag == True):
 
@@ -132,49 +246,7 @@ class image_converter:
               self.depth_info.label = data.results[idx].label
               self.depth_info_pub.publish(self.depth_info)
 
-              # import os
 
-              # os.system("echo {},{},{} >> pos.txt".format(data.results[idx].label, object_x.item(), object_y.item()))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-          # if depth_min == 0:
-
-          #   rospy.logwarn("minimum depth is 0, ERROR")
-          
-
-    
-    
-
-        # Get Obstacle Position based on SLAM odom
-
-       # obstacle_x, obstacle_y = self.get_obstacle_pos(self.depth_value_gaussian, self.drone_x, self.drone_y, self.roll , self.pitch , self.yaw)
-        # object_x, object_y = self.get_object_pos(data.results[idx].x_center,data.results[idx].y_center,self.depth_value_gaussian)
-        # self.depth_info.depth = self.depth_value_gaussian/10.0 # centi meter
-
-        # self.depth_info.label = data.results[idx].label
-
-        # self.depth_info.x_center = int(object_x)
-
-        # self.depth_info.y_center = int(object_y)
-        # print(self.depth_info)
-        # self.depth_estimator_pub.publish(self.depth_info)
-
-
-        # self.draw_top_view(object_x,object_y,255,255,255)
-        # self.draw_top_view(self.drone_x*100,self.drone_y*100,0,255,255)
 
   def get_object_pos(self,u,v,z):
     side = 'gazebo'
@@ -290,25 +362,6 @@ class image_converter:
     cv2.waitKey(1)
 
     
-
-    
-
-
-    
-            
-  # def get_obstacle_pos (self,depth_gaussian,drone_x,drone_y,roll,pitch,yaw):
-    
-   
-  #   depth_z = depth_gaussian/10 * np.cos(pitch)
-
-  #   drone_x *= 100
-  #   drone_y *= 100
-
-  #   obstacle_x = drone_x + depth_z * np.cos(yaw)
-    
-  #   obstacle_y = drone_y + depth_z * np.sin(yaw)
-
-  #   return obstacle_x, obstacle_y
     
   def get_depth(self,x,y): # x y in rgb image
     x = int(x * width_factor)
@@ -327,11 +380,39 @@ class image_converter:
       self.rgb_input = False
       rospy.logerr(e)
 
+  def reproject_rgb_to_depth(self,x_min,x_max,y_min,y_max,margin=0):
+    u_min = x_min - self.rgb_intrinsics["cx"]
+    u_max = x_max - self.rgb_intrinsics["cx"]
+    v_min = y_min - self.rgb_intrinsics["cy"]
+    v_max = y_max - self.rgb_intrinsics["cy"]
+
+    u_depth_min = u_min*self.depth_intrinsics["fx"]/self.rgb_intrinsics["fx"] + margin
+    u_depth_max = u_max*self.depth_intrinsics["fx"]/self.rgb_intrinsics["fx"] - margin
+    v_depth_min = v_min*self.depth_intrinsics["fy"]/self.rgb_intrinsics["fy"] + margin
+    v_depth_max = v_max*self.depth_intrinsics["fy"]/self.rgb_intrinsics["fy"] - margin
+
+    x_depth_min = u_depth_min + self.depth_intrinsics["cx"]
+    x_depth_max = u_depth_max + self.depth_intrinsics["cx"]
+    y_depth_min = v_depth_min + self.depth_intrinsics["cy"]
+    y_depth_max = v_depth_max + self.depth_intrinsics["cy"]
+
+    return int(x_depth_min), int(x_depth_max), int(y_depth_min), int(y_depth_max)
+
+
 
 
 def main(args):
+
+  depth_camera_topic = "/d435/camera/depth/image_raw"
+  depth_camera_info_topic = "/d435/camera/depth/camera_info"
+  yolo_output_topic = "/yolo_output"
+  rgb_camera_info_topic = "/d435/camera/color/camera_info"
+  odometry_topic = "/gazebo_camera_pose"
+
+  print("depth_camera_topic = ", depth_camera_info_topic)
+
   rospy.init_node('depth_subscriber', anonymous=True)
-  ic = image_converter()
+  ic = image_converter(depth_camera_topic , depth_camera_info_topic, yolo_output_topic, rgb_camera_info_topic, odometry_topic)
  
   try:
     rospy.spin()
