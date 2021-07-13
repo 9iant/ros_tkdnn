@@ -95,6 +95,8 @@ class image_converter:
         # Get center of box
         self.center_of_box = (data.results[idx].x_center,data.results[idx].y_center)
 
+        print("====")
+        print(self.center_of_box)
         # Gaussian sampling 
         num_samples = 1000
         
@@ -177,10 +179,10 @@ class image_converter:
   def get_object_pos(self,u,v,z):
     side = 'gazebo'
     if side == 'gazebo':
-      fx = 695.9951171875
-      fy = 695.9951171875
-      cx = 640.0
-      cy = 360.0
+      fx = 462.1379699707031
+      fy = 462.1379699707031
+      cx = 320.0#640.0
+      cy = 240.0#360.0
     elif side == 'left':
       fx = 382.3295018608584
       fy = 381.7717111167475
@@ -195,6 +197,10 @@ class image_converter:
 
 
     # !! x,y,z's units are different !!
+    # u = u + 640/2
+    # v = v + 480/2
+
+    print("(u,v) : ", u,v)
     #Pc
     print('z : ', z)
     x,y,z = z*np.linalg.inv(np.matrix([[fx,0,cx],[0,fy,cy],[0,0,1]])) * np.matrix([[u],[v],[1]]) / 1000.0
@@ -271,7 +277,7 @@ class image_converter:
 
     # self.marker.mesh_resource = "package://pr2_description/meshes/base_v0/base.dae"
     self.vis_pub.publish(self.marker)
-    rospy.loginfo("marker has been published")
+    # rospy.loginfo("marker has been published")
   def draw_top_view(self, x, y,r,g,b):
 
     
