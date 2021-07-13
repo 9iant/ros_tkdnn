@@ -1,0 +1,55 @@
+types and shape of Image associated topics
+
+rostopic echo /camera/color/camera_info 
+---
+header: 
+  seq: 8534
+  stamp: 
+    secs: 1625470458
+    nsecs: 803561211
+  frame_id: "camera_color_optical_frame"
+height: 480
+width: 640
+distortion_model: "plumb_bob"
+D: [0.0, 0.0, 0.0, 0.0, 0.0]
+K: [609.0117797851562, 0.0, 314.15863037109375, 0.0, 608.3092041015625, 248.6946258544922, 0.0, 0.0, 1.0]
+R: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+P: [609.0117797851562, 0.0, 314.15863037109375, 0.0, 0.0, 608.3092041015625, 248.6946258544922, 0.0, 0.0, 0.0, 1.0, 0.0]
+binning_x: 0
+binning_y: 0
+roi: 
+  x_offset: 0
+  y_offset: 0
+  height: 0
+  width: 0
+  do_rectify: False
+---
+
+
+rostopic echo /camera/depth/camera_info 
+---
+header: 
+  seq: 8015
+  stamp: 
+    secs: 1625470405
+    nsecs: 517272234
+  frame_id: "camera_depth_optical_frame"
+height: 480
+width: 640
+distortion_model: "plumb_bob"
+D: [0.0, 0.0, 0.0, 0.0, 0.0]
+K: [379.5873718261719, 0.0, 320.84783935546875, 0.0, 379.5873718261719, 239.37100219726562, 0.0, 0.0, 1.0]
+R: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+P: [379.5873718261719, 0.0, 320.84783935546875, 0.0, 0.0, 379.5873718261719, 239.37100219726562, 0.0, 0.0, 0.0, 1.0, 0.0]
+binning_x: 0
+binning_y: 0
+roi: 
+  x_offset: 0
+  y_offset: 0
+  height: 0
+  width: 0
+  do_rectify: False
+---
+
+
+
