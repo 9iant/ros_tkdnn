@@ -265,7 +265,7 @@ Yolo::detection *Yolo::allocateDetections(int nboxes, int classes) {
 
 void Yolo::mergeDetections(Yolo::detection *dets, int ndets, int classes, double nms_thresh, nmsKind_t nsm_kind) {
     int total = ndets;
-
+    nms_thresh = 0.1;
     int i, j, k;
     k = total-1;
     for(i = 0; i <= k; ++i){

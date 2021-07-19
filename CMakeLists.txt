@@ -157,6 +157,7 @@ add_message_files(
   yolo_coordinate.msg
   yolo_coordinateArray.msg
   depth_info.msg
+  depth_infoArray.msg
 
 
   
@@ -185,6 +186,6 @@ target_link_libraries(${PROJECT_NAME}
   ${catkin_LIBRARIES}
 )
 
-catkin_install_python(PROGRAMS ros_src/depth_subscriber.py ros_src/gs_depth_subscriber.py ros_src/gs_depth_subscriber_realsense.py
+catkin_install_python(PROGRAMS ros_src/depth_subscriber.py ros_src/gs_depth_subscriber.py ros_src/gs_depth_subscriber_realsense.py ros_src/gs_mot.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

@@ -6,7 +6,7 @@ yolo_model:
     name: /root/catkin_ws/src/ros_tkdnn/build/yolo4tiny_fp32.rt
 
   threshold:
-    value: 0.5
+    value: 0.75
   detection_classes:
     value: 2
 
