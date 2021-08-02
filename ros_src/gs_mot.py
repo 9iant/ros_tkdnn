@@ -154,9 +154,9 @@ class Sort(object):
     # update matched trackers with assigned detections
     for m in matched:
       print("matching : {}".format(m)) #################### m[0] / m[1] exchaged!
-      print(dets[m[1], :])
-      print(self.trackers[m[0]].position)
-      self.trackers[m[0]].update(dets[m[1], :])
+      print(dets[m[0], :])
+      print(self.trackers[m[1]].position)
+      self.trackers[m[1]].update(dets[m[0], :])
 
     # create and initialise new trackers for unmatched detections
 
