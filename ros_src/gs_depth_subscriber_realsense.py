@@ -1,77 +1,95 @@
 #!/usr/bin/env python
 from __future__ import print_function
 
+# general library 
 import roslib
 #roslib.load_manifest('depth_sub')
 import sys
 import rospy
 import cv2
 import std_msgs
-from std_msgs.msg import String
-from std_msgs.msg import UInt16
-from std_msgs.msg import UInt8
-
-from geometry_msgs.msg import PoseWithCovarianceStamped
-from geometry_msgs.msg import PoseStamped
-from sensor_msgs.msg import Image, CameraInfo
-from cv_bridge import CvBridge, CvBridgeError
-from nav_msgs.msg import Odometry
-
-from ros_tkdnn.msg import yolo_coordinateArray
-from ros_tkdnn.msg import depth_info, depth_infoArray
-from tf.transformations import *
 import numpy as np
-
-
-depth_width, depth_height = 1280, 720 ########################################
-rgb_width, rgb_height = 640, 480 ################################################
-
-width_factor = 1.0 * depth_width / rgb_width  
-height_factor = 1.0 * depth_height / rgb_height
-
-# import matplotlib.pyplot as plt
-
-import tf
-import turtlesim.msg
-
-from visualization_msgs.msg import Marker
 import pandas as pd
 
+# geometry related message and module.
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped
+from nav_msgs.msg import Odometry
+import tf
+from tf.transformations import *
+
+# Camerea, image related message.
+from sensor_msgs.msg import Image, CameraInfo
+from cv_bridge import CvBridge, CvBridgeError
+
+# For visualization
+from visualization_msgs.msg import Marker, MarkerArray
+
+# User defined message. #
+from ros_tkdnn.msg import yolo_coordinateArray
+from ros_tkdnn.msg import depth_info, depth_infoArray
+
+'''
+TODO: Potential warning due to hard coding:
+
+gs_yolo_callback -> marker frame id
+get_object_pos -> look up table
+
+'''
+# Topics and FRAME NAME 
+
+CAMERA_OPTIC_FRAME_NAME = '/camera_depth_optical_frame'
+GLOBAL_FRAME_NAME = 'global'
+# SUBS
+depth_camera_topic = "/camera/depth/image_rect_raw"
+depth_camera_info_topic = "/camera/depth/camera_info"
+yolo_output_topic = "/yolo_output"
+rgb_camera_info_topic = "/camera/color/camera_info"
+odometry_topic = "/odometry/filtered"
+# PUBS
+
+
+# main class.
 class image_converter:
 
-  def __init__(self, depth_camera_topic, depth_camera_info_topic, yolo_output_topic, rgb_camera_info_topic, odometry_topic):
-
+  def __init__(self):
 
     self.data = pd.DataFrame(columns=['label','x','y'])
 
-    self.vis_pub = rospy.Publisher("/depth_estimator/vis",Marker, queue_size=1)
-    self.depth_info_pub = rospy.Publisher("/depth_estimator/depth_info", depth_info, queue_size = 1)
-    self.depth_info = depth_info()
-    
-    self.depth_infoArray_pub = rospy.Publisher("/depth_estimator/depth_infoarray", depth_infoArray, queue_size = 1)
-
-    self.object_estimator = rospy.Publisher("/depth_estimator/object_position", PoseStamped, queue_size = 1)
-
+    '''
+    SUBSCRIBERS
+    '''
+    # depth image subscriber.
     self.bridge = CvBridge()
-
-    self.depth_sub = rospy.Subscriber(depth_camera_topic,Image,self.depth_cb)
-    self.yolo_sub = rospy.Subscriber(yolo_output_topic,yolo_coordinateArray,self.gs_yolo_cb)
-
-    self.depth_camera_info_sub = rospy.Subscriber(depth_camera_info_topic,CameraInfo, self.depth_camera_info_cb)
-    self.depth_intrinsics = None
-    self.rgb_camera_info_sub = rospy.Subscriber(rgb_camera_info_topic,CameraInfo, self.rgb_camera_info_cb)
-    self.rgb_intrinsics = None
-
-    
-    
-    self.listener = tf.TransformListener()
-
-    self.slam_odom = rospy.Subscriber(odometry_topic, Odometry, self.slam_cb) ##
-   
-
+    self.depth_sub = rospy.Subscriber(depth_camera_topic, Image,self.depth_cb)
     self.depth_flag = False
+
+    # slam odometry subscriber.
+    self.slam_odom_sub = rospy.Subscriber(odometry_topic, Odometry, self.slam_cb)
     self.slam_flag = False
 
+    # To handle geometric transformation.
+    self.listener = tf.TransformListener()
+
+    # yolo result subscriber (Main part).
+    self.yolo_sub = rospy.Subscriber(yolo_output_topic, yolo_coordinateArray,self.gs_yolo_cb)
+
+    # callback funtion.. but need to run once. 
+    self.depth_camera_info_sub = rospy.Subscriber(depth_camera_info_topic, CameraInfo, self.depth_camera_info_cb)
+    self.depth_intrinsics = None # if there is no camera_info topic, make exception
+    self.rgb_camera_info_sub = rospy.Subscriber(rgb_camera_info_topic, CameraInfo, self.rgb_camera_info_cb)
+    self.rgb_intrinsics = None # if there is no camera_info topic, make exception
+
+    '''
+    PUBLISHERS
+    '''
+    # publisher: one for visualization, one for depth result.
+    # they are integrated in gs_yolo_cb function.
+    self.depth_infoArray_pub = rospy.Publisher("/depth_estimator/depth_infoarray", depth_infoArray, queue_size = 1)
+    self.vis_pub = rospy.Publisher("/depth_estimator/object_global_position", MarkerArray, queue_size=1)
+
+  #------------------------------------------------------COORDINATE TRANSFORM------------------------------------------------------
+
+  # run only once. save depth camera intrinsics.
   def depth_camera_info_cb(self, cameraInfo):
     try:
       if self.depth_intrinsics:
@@ -89,6 +107,7 @@ class image_converter:
         print(e)
         return
 
+  # run only once. save rgb camera intrinsics.
   def rgb_camera_info_cb(self, cameraInfo):
     try:
       if self.rgb_intrinsics:
@@ -106,234 +125,7 @@ class image_converter:
         print(e)
         return
 
-
-
-  def slam_cb(self,data):
-    self.slam_flag = True
-    
-    self.drone_x = data.pose.pose.position.x
-    self.drone_y = data.pose.pose.position.y
-
-    orientation_q = data.pose.pose.orientation
-    orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
-    (self.roll, self.pitch, self.yaw) = euler_from_quaternion(orientation_list)
-
-
-
-  def gs_yolo_cb(self,data):
-    if not(self.depth_intrinsics and self.rgb_intrinsics):
-      return
-    print(len(data.results),self.depth_flag, self.slam_flag)
-    print("------------------------------")
-    #print(data.results)
-    
-
-    if data.results and (self.depth_flag == True) and (self.slam_flag == True):
-
-      depth_data = depth_infoArray()
-
-      for idx in range(len(data.results)):
-
-        # Get center of box
-        x_min = data.results[idx].xmin
-        x_max = data.results[idx].xmax
-        y_min = data.results[idx].ymin
-        y_max = data.results[idx].ymax
-        x_depth_min, x_depth_max, y_depth_min, y_depth_max = self.reproject_rgb_to_depth(x_min, x_max, y_min, y_max)
-        x_depth_center = (x_depth_max + x_depth_min)/2
-        y_depth_center = (y_depth_max + y_depth_min)/2
-        croped_image = self.cv_depth_image[y_depth_min:y_depth_max,x_depth_min:x_depth_max]
-        
-        
-        result_img = cv2.cvtColor(self.cv_depth_image*100, cv2.COLOR_GRAY2BGR)
-        result_img = cv2.rectangle(result_img, (x_depth_min,y_depth_min), (x_depth_max, y_depth_max),(0,0,0), 5)
-
-        cv2.imshow("depth_image",result_img)
-        cv2.waitKey(1)
-        depth = np.median(croped_image)
-
-        self.depth_value_gaussian = depth
-
-        object_x, object_y = self.get_object_pos(x_depth_center, y_depth_center ,self.depth_value_gaussian) # --> draw rviz pub 
-
-
-        self.depth_info.x = object_x
-        self.depth_info.y = object_y
-        self.depth_info.label = data.results[idx].label
-        self.depth_info.confidence = data.results[idx].confidence
-        self.depth_info_pub.publish(self.depth_info)
-        depth_data.results.append(self.depth_info)
-        print("====")
-      self.depth_infoArray_pub.publish(depth_data)  
-        
-
-
-
-
-  def depth_cb(self,data):
-    if not self.depth_intrinsics:
-      return
-    self.depth_flag = True
-    self.cv_depth_image = self.bridge.imgmsg_to_cv2(data, data.encoding)
-
-  def yolo_cb(self,data):
-    if not(self.depth_intrinsics and self.rgb_intrinsics):
-      return
-    print(len(data.results),self.depth_flag, self.slam_flag)
-    if data.results and (self.depth_flag == True) and (self.slam_flag == True):
-
-      for idx in range(len(data.results)):
-
-        # Get center of box
-        self.center_of_box = (data.results[idx].x_center,data.results[idx].y_center)
-
-        print("====")
-        print(self.center_of_box)
-        # Gaussian sampling 
-        num_samples = 1000
-        
-        self.gaussian_sampling = np.random.multivariate_normal(self.center_of_box,
-          [[data.results[idx].w,0],[0,data.results[idx].h]], num_samples)
-
-        # Get depth each point
-
-        self.depth_value_list = []
-
-        for point in self.gaussian_sampling:
-
-          self.depth_value_list.append(self.get_depth(int(point[0]), int(point[1])))  
-
-        # Choose representative point (minimum depth)
-      
-        depth_min = np.max(self.depth_value_list)
-        print("min:",depth_min)
-        for depth in self.depth_value_list:
-          
-          if depth > 0 and depth < depth_min:
-            
-            depth_min = depth 
-            
-            if depth_min != 0:
-            
-              self.depth_value_gaussian = depth_min 
-
-              object_x, object_y = self.get_object_pos(data.results[idx].x_center,data.results[idx].y_center,self.depth_value_gaussian)
-
-              self.depth_info.x = object_x
-              self.depth_info.y = object_y
-              self.depth_info.label = data.results[idx].label
-              self.depth_info_pub.publish(self.depth_info)
-
-
-
-  def get_object_pos(self,u,v,z):
-
-    fx = self.depth_intrinsics["fx"]
-    fy = self.depth_intrinsics["fy"]
-    cx = self.depth_intrinsics["cx"]
-    cy = self.depth_intrinsics["cy"]
-   
-    print("(u,v) : ", u,v)
-    #Pc
-    print('z : ', z)
-    
-    x = (u-cx)*z/fx/1000.0
-    y = (v-cy)*z/fy/1000.0
-    z = z/1000.0
-
-
-    # x = temp_y
-    # y = temp_x
-    # z = -temp_z
-
-    try:
-      # (trans, rot) = self.listener.lookupTransform('/camera_d435', 'world', rospy.Time(0))
-      (trans, rot) = self.listener.lookupTransform('/map', '/camera_depth_optical_frame', rospy.Time(0))
-    except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
-      print("except")
-    # print('x y z : ', x,y,z)
-    
-    # get camera static tf and certify 
-    # get transformation matrix Tmc 
-    
-    world_cam_T = tf.transformations.translation_matrix((trans[0],trans[1],trans[2]))
-    world_cam_R = tf.transformations.quaternion_matrix((rot[0],rot[1],rot[2],rot[3]))
-    # generate TF matrix in python(Tmc)
-    Tmc = np.matmul(world_cam_T,world_cam_R)
-
-    Pm = np.matmul(Tmc, np.array([[x.item()], [y.item()], [z.item()], [1]]))
-
-    Pm_pub = PoseStamped()
-
-    Pm_pub.header.stamp = rospy.Time.now()
-    # Pm_pub.pose.position.x = Pm[0] / 1000.0
-    # Pm_pub.pose.position.y = Pm[1] / 1000.0
-    # Pm_pub.pose.position.z = Pm[2] / 1000.0
-    Pm_pub.pose.position.x = Pm[0]
-    Pm_pub.pose.position.y = Pm[1]
-    Pm_pub.pose.position.z = Pm[2]
-    
-    self.draw_in_rviz(Pm_pub.pose.position.x,Pm_pub.pose.position.y, Pm_pub.pose.position.z)
-
-    
-    # self.object_estimator.publish(Pm)
-    return Pm_pub.pose.position.x, Pm_pub.pose.position.y
-
-  def draw_in_rviz(self,x,y,z):
-    self.marker = Marker()
-
-    self.marker.header.frame_id = "/map"
-    self.marker.header.stamp = rospy.Time.now()
-    self.marker.ns = "my_namespace"
-    self.marker.id = 0
-    self.marker.type = 1
-    self.marker.action = Marker.ADD
-    self.marker.pose.position.x = x
-    self.marker.pose.position.y = y
-    self.marker.pose.position.z = z
-    self.marker.pose.orientation.x = 0.0
-    self.marker.pose.orientation.y = 0.0
-    self.marker.pose.orientation.z = 0.0
-    self.marker.pose.orientation.w = 1.0
-    self.marker.scale.x = 0.5
-    self.marker.scale.y = 0.5
-    self.marker.scale.z = 0.5
-    self.marker.color.a = 0.5 # Don't forget to set the alpha!
-    self.marker.color.r = 255
-    self.marker.color.g = 0
-    self.marker.color.b = 0
-
-    # self.marker.mesh_resource = "package://pr2_description/meshes/base_v0/base.dae"
-    self.vis_pub.publish(self.marker)
-    # rospy.loginfo("marker has been published")
-  def draw_top_view(self, x, y,r,g,b):
-
-    
-    x += 250
-    y += 250
-
-    img = cv2.circle(self.img, (int(x),int(y)), 1 ,(r,g,b), -1)
-
-    cv2.imshow('img',img)
-    cv2.waitKey(1)
-
-    
-    
-  def get_depth(self,x,y): # x y in rgb image
-    x = int(x * width_factor)
-    y = int(y * height_factor)
-    return self.cv_depth_image[y][x]
-  
-  # def rgb_cb(self,data):
-  #   try:
-  #     #(480,640,3)
-
-  #     self.cv_rgb_image = self.bridge.imgmsg_to_cv2(data,'bgr8')
-  #     self.rgb_input = True
-  #   except CvBridgeError as e:
-  #     self.rgb_input = False
-  #     rospy.logerr(e)
-
+  # change coordinate system based on camera intrinsic params (rgb frame -> depth frame)
   def reproject_rgb_to_depth(self,x_min,x_max,y_min,y_max):
 
     # regular coordinate system
@@ -356,21 +148,147 @@ class image_converter:
 
     return x_depth_min, x_depth_max, y_depth_min, y_depth_max
 
+  # using tf library, make global position.
+  def get_object_pos(self,u,v,z):
 
+    fx = self.depth_intrinsics["fx"]
+    fy = self.depth_intrinsics["fy"]
+    cx = self.depth_intrinsics["cx"]
+    cy = self.depth_intrinsics["cy"]
+    
+    x = (u-cx)*z/fx/1000.0
+    y = (v-cy)*z/fy/1000.0
+    z = z/1000.0
+
+    try:
+      (trans, rot) = self.listener.lookupTransform(GLOBAL_FRAME_NAME, CAMERA_OPTIC_FRAME_NAME, rospy.Time(0))
+    except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+      print("except")
+    
+    world_cam_T = tf.transformations.translation_matrix((trans[0],trans[1],trans[2]))
+    world_cam_R = tf.transformations.quaternion_matrix((rot[0],rot[1],rot[2],rot[3]))
+    # generate TF matrix in python(Tmc)
+    Tmc = np.matmul(world_cam_T,world_cam_R)
+
+    Pm = np.matmul(Tmc, np.array([[x.item()], [y.item()], [z.item()], [1]]))
+
+    Pm_pub = PoseStamped()
+
+    Pm_pub.header.stamp = rospy.Time.now()
+    Pm_pub.pose.position.x = Pm[0]
+    Pm_pub.pose.position.y = Pm[1]
+    Pm_pub.pose.position.z = Pm[2]
+    
+    return Pm_pub.pose.position.x, Pm_pub.pose.position.y, Pm_pub.pose.position.z
+
+  #---------------------------------------------------------SAVE DATA------------------------------------------------------
+
+  # save depth image when it's published.
+  def depth_cb(self,depth_image_topic):
+    if not self.depth_intrinsics:
+      return
+    self.depth_flag = True
+    self.cv_depth_image = self.bridge.imgmsg_to_cv2(depth_image_topic, depth_image_topic.encoding)
+
+
+  # save slam odometry when it's publisehd.
+  def slam_cb(self,odometry_topic):
+    self.slam_flag = True
+    
+    self.drone_x = odometry_topic.pose.pose.position.x
+    self.drone_y = odometry_topic.pose.pose.position.y
+
+    orientation_q = odometry_topic.pose.pose.orientation
+    orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
+    (self.roll, self.pitch, self.yaw) = euler_from_quaternion(orientation_list)
+
+  #----------------------------------------------------------MAIN CALLBACK-------------------------------------------------
+
+  # main part of this node. if there is yolo output, generate depth estimation results.
+  def gs_yolo_cb(self, yolo_array):
+    if not(self.depth_intrinsics and self.rgb_intrinsics):
+      return
+    
+    # Command window display. 
+    obj_list = [a_result.label for a_result in yolo_array.results]
+    print("Number of object : {0} // {1}".format(len(yolo_array.results), obj_list))
+    print("Flags : Depth {0}, Odom {1}".format(self.depth_flag, self.slam_flag))
+    print("-"*20)
+
+    redcolor = np.random.rand() # for visualization part
+
+    if yolo_array.results and self.depth_flag and self.slam_flag:
+
+      depth_data = depth_infoArray()
+      globalposition_data = MarkerArray()
+
+      for idx in range(len(yolo_array.results)):
+
+        # Get center of box
+        x_min = yolo_array.results[idx].xmin
+        x_max = yolo_array.results[idx].xmax
+        y_min = yolo_array.results[idx].ymin
+        y_max = yolo_array.results[idx].ymax
+        x_depth_min, x_depth_max, y_depth_min, y_depth_max = self.reproject_rgb_to_depth(x_min, x_max, y_min, y_max)
+        x_depth_center = (x_depth_max + x_depth_min)/2
+        y_depth_center = (y_depth_max + y_depth_min)/2
+        croped_image = self.cv_depth_image[y_depth_min:y_depth_max,x_depth_min:x_depth_max]
+        
+        # For debugging
+        # result_img = cv2.cvtColor(self.cv_depth_image*100, cv2.COLOR_GRAY2BGR)
+        # result_img = cv2.rectangle(result_img, (x_depth_min,y_depth_min), (x_depth_max, y_depth_max),(0,0,0), 5)
+
+        # cv2.imshow("depth_image",result_img)
+        # cv2.waitKey(1)
+        depth = np.median(croped_image)
+
+        object_x, object_y, object_z = self.get_object_pos(x_depth_center, y_depth_center , depth) # --> draw rviz pub 
+
+        # depth estimator result
+        depth_info_data = depth_info()
+        depth_info_data.x = object_x
+        depth_info_data.y = object_y
+        depth_info_data.label = yolo_array.results[idx].label
+        depth_info_data.confidence = yolo_array.results[idx].confidence
+        # depth result array
+        depth_data.results.append(depth_info_data)
+
+        # visualization part
+        marker = Marker()
+        marker.header.frame_id = GLOBAL_FRAME_NAME
+        marker.header.stamp = rospy.Time.now()
+        marker.ns = "my_namespace"
+        marker.id = idx
+        marker.type = 2
+        marker.action = Marker.ADD
+        marker.pose.position.x = object_x
+        marker.pose.position.y = object_y
+        marker.pose.position.z = object_z
+        marker.pose.orientation.x = 0.0
+        marker.pose.orientation.y = 0.0
+        marker.pose.orientation.z = 0.0
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = 0.3
+        marker.scale.y = 0.3
+        marker.scale.z = 0.3
+        marker.color.a = 0.5 # Don't forget to set the alpha!
+        marker.color.r = redcolor
+        marker.color.g = 0
+        marker.color.b = 0
+        # marker array
+        globalposition_data.markers.append(marker) 
+
+      self.depth_infoArray_pub.publish(depth_data)
+      self.vis_pub.publish(globalposition_data) 
+  
+  
+  #-----------------------------------------------------------------------------------------------------------------------
 
 
 def main(args):
 
-  depth_camera_topic = "/camera/depth/image_rect_raw"
-  depth_camera_info_topic = "/camera/depth/camera_info"
-  yolo_output_topic = "/yolo_output"
-  rgb_camera_info_topic = "/camera/color/camera_info"
-  odometry_topic = "/odometry/filtered"
-
-  print("depth_camera_topic = ", depth_camera_info_topic)
-
   rospy.init_node('depth_subscriber', anonymous=True)
-  ic = image_converter(depth_camera_topic , depth_camera_info_topic, yolo_output_topic, rgb_camera_info_topic, odometry_topic)
+  ic = image_converter()
  
   try:
     rospy.spin()

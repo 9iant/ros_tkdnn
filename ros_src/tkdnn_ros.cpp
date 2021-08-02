@@ -29,6 +29,21 @@ void sig_handler(int signo) {
 
 #define CAMERA 1
 #define VIDEO 0
+
+/* helper functions */
+void error(std::string msg){
+    ROS_ERROR("%s", msg.c_str());
+    throw std::runtime_error(msg.c_str());
+}
+
+template <typename T>
+void getParam(ros::NodeHandle& nh, std::string name, T& t){
+    if (!nh.getParam(name, t)) {
+        std::string msg = ros::this_node::getName() + " : param \'" + name + "\' is not set.";
+        error(msg);
+    }
+}
+
 cv_bridge::CvImagePtr cv_ptr;
 class ImageConverter
 {
